@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ur" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#172554">
+<link rel="manifest" href="manifest.json">
+<title>Humpty Dumpty Mardan POS</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f1f5f9;color:#17202a;font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif}
+header{background:#172554;color:#fff;padding:15px 16px;position:sticky;top:0;z-index:5;box-shadow:0 2px 8px #0002}
+header b{font-size:19px}header small{display:block;color:#dbeafe;margin-top:2px}
+nav{display:flex;gap:6px;padding:8px;background:#fff;position:sticky;top:71px;z-index:4;overflow:auto}
+nav button{white-space:nowrap;border:0;border-radius:10px;padding:10px 13px;background:#e2e8f0;color:#17202a}
+nav button.active{background:#172554;color:#fff}.wrap{padding:10px;max-width:700px;margin:auto}
+.card{background:#fff;border-radius:14px;padding:12px;margin-bottom:10px;box-shadow:0 2px 10px #00000010}
+.row{display:flex;gap:7px;flex-wrap:wrap}input,select,button{font:inherit}input,select{border:1px solid #cbd5e1;border-radius:10px;padding:11px;background:#fff;min-width:0}
+#barcode{flex:1}.primary,.success,.danger{border:0;color:#fff;border-radius:10px;padding:11px 13px}.primary{background:#172554}.success{background:#15803d}.danger{background:#b91c1c}
+.products{display:grid;grid-template-columns:1fr 1fr;gap:7px}.prod{border:1px solid #e2e8f0;border-radius:11px;padding:10px;background:#f8fafc}.prod b{display:block}.muted{font-size:12px;color:#64748b}
+table{width:100%;border-collapse:collapse}th,td{padding:8px 3px;border-bottom:1px solid #e5e7eb;text-align:right;font-size:13px}
+.total{font-size:23px;font-weight:800;text-align:left;padding:12px 0}.statgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.stat{background:#fff;border-radius:12px;padding:10px}.stat span{display:block;color:#64748b;font-size:11px}.stat b{font-size:17px}
+#camera{width:100%;border-radius:12px;background:#000;display:none;max-height:280px;object-fit:cover}.hidden{display:none!important}
+.receipt{font-family:monospace;direction:ltr;text-align:left;white-space:pre-wrap;border:1px dashed #94a3b8;padding:12px;border-radius:8px}
+@media(max-width:380px){.products{grid-template-columns:1fr}.statgrid{grid-template-columns:1fr}}
+@media print{header,nav,.no-print{display:none!important}.wrap{padding:0}.card{box-shadow:none}}
+</style>
+</head>
+<body>
+<header><b>HUMPTY DUMPTY MARDAN</b><small>Mobile POS • Version 1</small></header>
+<nav id="nav">
+<button class="active" onclick="page('sale',this)">🧾 Sale</button>
+<button onclick="page('products',this)">📦 Stock</button>
+<button onclick="page('reports',this)">📊 Reports</button>
+<button onclick="page('settings',this)">⚙️ Settings</button>
+</nav>
+<div class="wrap" id="app"></div>
+<script>
+const defaults=[
+{id:1,barcode:"100001",name:"Kids T-Shirt",cat:"Clothing",size:"4-5Y",color:"Blue",cost:900,price:1499,stock:10},
+{id:2,barcode:"100002",name:"Kids Pant",cat:"Clothing",size:"5-6Y",color:"Black",cost:1200,price:1999,stock:8},
+{id:3,barcode:"100003",name:"Kids Frock",cat:"Clothing",size:"3-4Y",color:"Pink",cost:1500,price:2499,stock:6},
+{id:4,barcode:"100004",name:"Kids Shoes",cat:"Shoes",size:"28",color:"White",cost:1800,price:2999,stock:5}
+];
+let products=JSON.parse(localStorage.hdm_products||"null")||defaults;
+let sales=JSON.parse(localStorage.hdm_sales||"[]"),cart=[],lastSale=null;
+const save=()=>{localStorage.hdm_products=JSON.stringify(products);localStorage.hdm_sales=JSON.stringify(sales)};
+const money=n=>"Rs. "+Number(n||0).toLocaleString("en-PK");
+function page(name,btn){document.querySelectorAll("#nav button").forEach(x=>x.classList.remove("active"));if(btn)btn.classList.add("active");({sale:renderSale,products:renderProducts,reports:renderReports,settings:renderSettings}[name])()}
+function renderSale(){
+document.getElementById("app").innerHTML=`<div class="card">
+<div class="row"><input id="barcode" placeholder="Barcode scan / type" autocomplete="off"><button class="primary" onclick="scan()">SCAN</button><button class="primary" onclick="cameraStart()">📷</button></div>
+<video id="camera" playsinline></video><div id="camMsg" class="muted"></div>
+<input id="q" style="width:100%;margin-top:8px" placeholder="Search product..." oninput="productList()"></div>
+<div class="card"><h3>Products</h3><div id="plist" class="products"></div></div>
+<div class="card"><h3>Current Bill</h3><div id="bill"></div>
+<div class="total">TOTAL: <span id="total">Rs. 0</span></div>
+<div class="row"><input id="disc" type="number" min="0" value="0" placeholder="Discount" style="width:120px" oninput="refreshBill()">
+<select id="pay"><option>Cash</option><option>Card</option><option>Easypaisa</option><option>JazzCash</option></select></div>
+<button class="success" style="width:100%;margin-top:8px" onclick="completeSale()">✓ COMPLETE SALE</button>
+<button class="danger" style="width:100%;margin-top:7px" onclick="cart=[];refreshBill()">Clear Cart</button></div>`;
+document.getElementById("barcode").onkeydown=e=>{if(e.key==="Enter")scan()};productList();refreshBill();
+}
+function scan(){let code=document.getElementById("barcode").value.trim();if(!code)return;let p=products.find(x=>x.barcode===code);document.getElementById("barcode").value="";if(p)add(p.id);else alert("Barcode not found")}
+function productList(){let q=(document.getElementById("q")?.value||"").toLowerCase();let el=document.getElementById("plist");if(!el)return;
+el.innerHTML=products.filter(p=>(p.name+" "+p.barcode+" "+p.size+" "+p.color).toLowerCase().includes(q)).map(p=>`<div class="prod" onclick="add(${p.id})"><b>${p.name}</b><span class="muted">${p.size} • ${p.color} • ${p.barcode}</span><br>${money(p.price)}<br><span class="muted">Stock: ${p.stock}</span></div>`).join("")}
+function add(id){let p=products.find(x=>x.id===id);if(!p||p.stock<1)return alert("Out of stock");let i=cart.find(x=>x.id===id);if(i){if(i.qty>=p.stock)return alert("Not enough stock");i.qty++}else cart.push({id,qty:1});refreshBill()}
+function refreshBill(){let el=document.getElementById("bill");if(!el)return;let sub=0;let rows=cart.map(i=>{let p=products.find(x=>x.id===i.id),t=p.price*i.qty;sub+=t;return `<div style="display:flex;justify-content:space-between;border-bottom:1px solid #eee;padding:8px 0"><span>${p.name} × ${i.qty}<br><small>${p.size} ${p.color}</small></span><b>${money(t)}</b></div>`}).join("");let d=Number(document.getElementById("disc")?.value||0),tot=Math.max(0,sub-d);el.innerHTML=rows||'<span class="muted">No items</span>';document.getElementById("total").textContent=money(tot)}
+function completeSale(){if(!cart.length)return alert("Cart is empty");let sub=cart.reduce((s,i)=>s+products.find(p=>p.id===i.id).price*i.qty,0),d=Number(document.getElementById("disc").value||0),tot=Math.max(0,sub-d);
+for(let i of cart){let p=products.find(p=>p.id===i.id);if(i.qty>p.stock)return alert("Stock issue: "+p.name)}
+cart.forEach(i=>products.find(p=>p.id===i.id).stock-=i.qty);let inv="HDM-"+Date.now();lastSale={invoice:inv,date:new Date().toLocaleString(),subtotal:sub,discount:d,total:tot,payment:document.getElementById("pay").value,items:cart.map(i=>{let p=products.find(p=>p.id===i.id);return {...i,name:p.name,size:p.size,color:p.color,price:p.price,cost:p.cost}})};sales.push(lastSale);save();cart=[];alert("Sale complete\n"+inv+"\n"+money(tot));page("sale",document.querySelector("#nav button"))}
+function renderProducts(){document.getElementById("app").innerHTML=`<div class="card"><h3>Add Product</h3><div class="row">
+<input id="pb" placeholder="Barcode"><input id="pn" placeholder="Product name"><input id="pc" placeholder="Category"><input id="ps" placeholder="Size"><input id="pco" placeholder="Color"><input id="pcost" type="number" placeholder="Purchase"><input id="pp" type="number" placeholder="Sale price"><input id="pst" type="number" placeholder="Stock"></div><button class="success" style="margin-top:8px;width:100%" onclick="addProduct()">Add Product</button></div>
+<div class="card"><h3>Stock</h3><div id="stock"></div></div>`;stockList()}
+function stockList(){let el=document.getElementById("stock");el.innerHTML=products.map(p=>`<div style="padding:10px 0;border-bottom:1px solid #eee"><b>${p.name}</b><br><span class="muted">${p.barcode} • ${p.size} • ${p.color}</span><br>Sale: ${money(p.price)} • Stock: <b>${p.stock}</b></div>`).join("")}
+function addProduct(){let v=id=>document.getElementById(id).value.trim();if(!v("pb")||!v("pn"))return alert("Barcode and product name required");if(products.some(p=>p.barcode===v("pb")))return alert("Barcode already exists");products.push({id:Date.now(),barcode:v("pb"),name:v("pn"),cat:v("pc"),size:v("ps"),color:v("pco"),cost:Number(v("pcost")||0),price:Number(v("pp")||0),stock:Number(v("pst")||0)});save();renderProducts();alert("Product added")}
+function renderReports(){let today=new Date().toLocaleDateString(),a=sales.filter(s=>new Date(s.date).toLocaleDateString()===today),total=a.reduce((s,x)=>s+x.total,0),items=a.reduce((s,x)=>s+x.items.reduce((q,i)=>q+i.qty,0),0);
+document.getElementById("app").innerHTML=`<div class="statgrid"><div class="stat"><span>Today's Sales</span><b>${money(total)}</b></div><div class="stat"><span>Bills</span><b>${a.length}</b></div><div class="stat"><span>Items</span><b>${items}</b></div></div><div class="card"><h3>Recent Bills</h3>${sales.slice().reverse().slice(0,30).map(s=>`<div style="padding:10px 0;border-bottom:1px solid #eee"><b>${s.invoice}</b><br><span class="muted">${s.date} • ${s.payment}</span><strong style="float:left">${money(s.total)}</strong></div>`).join("")||"No sales yet"}</div>`}
+function renderSettings(){document.getElementById("app").innerHTML=`<div class="card"><h3>Settings</h3><p>Mobile data is stored locally on this device.</p><button class="primary" style="width:100%;margin:5px 0" onclick="backup()">💾 Export Backup</button><button class="primary" style="width:100%;margin:5px 0" onclick="window.print()">🖨 Print Last/Current</button><p class="muted">For automatic cloud sync between Windows and Android, Version 2 needs an online database/server.</p></div>`}
+function backup(){let b=new Blob([JSON.stringify({products,sales})],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="humpty-dumpty-mardan-backup.json";a.click()}
+async function cameraStart(){let v=document.getElementById("camera"),m=document.getElementById("camMsg");if(!("BarcodeDetector"in window)){m.textContent="Camera barcode scanning is not supported by this browser. Use the scan box or a Bluetooth scanner.";return}try{let stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});v.srcObject=stream;v.style.display="block";await v.play();let det=new BarcodeDetector();m.textContent="Camera scanner active — point at barcode";let loop=async()=>{if(v.readyState>=2){try{let codes=await det.detect(v);if(codes.length){document.getElementById("barcode").value=codes[0].rawValue;stream.getTracks().forEach(t=>t.stop());v.style.display="none";m.textContent="";scan();return}}catch(e){}}requestAnimationFrame(loop)};loop()}catch(e){m.textContent="Camera permission was denied or unavailable."}}
+if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
+renderSale();
+</script>
+</body></html>
